@@ -2,9 +2,9 @@
 Get All Needed Update from remote Windows Server 
 
 # Vars Needed
-ansible_path: /source/tower/wsus
-windows_path : C:\Temp
-windows_file_name: wsus_extract
+- ansible_path: /source/tower/wsus
+- windows_path : C:\Temp
+- windows_file_name: wsus_extract
 
 # Step by Step
 1. Executes a powershell script on the remote host to retrieve the list of updates installed on the host and stores the result in a file
