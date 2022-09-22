@@ -1,0 +1,101 @@
+---
+- name : Get update list installed
+  ansible.windows.win_powershell:
+    script: |
+      get-wmiobject -class win32_quickfixengineering | Export-csv -path {{windows_path}}\{{windows_file_name}}.csv -Delimiter ";"
+  become_method: runas
+
+- ansible.builtin.file: 
+    path: '{{ansible_path}}'
+    recurse: yes
+    mode: 0777
+    state: directory
+  delegate_to: localhost
+  remote_user: <ansible_remote_user>
+  become: false
+  run_once: true
+  ignore_errors: yes
+
+- win_shell: 'type {{windows_path}}\{{windows_file_name}}.csv | Select-Object -Skip 2'
+  register: content_file
+
+- name: Create file Needed Update
+  local_action:
+    module: lineinfile
+    create: yes
+    line: '"PSComputerName";"InstalledOn";"__GENUS";"__CLASS";"__SUPERCLASS";"__DYNASTY";"__RELPATH";"__PROPERTY_COUNT";"__DERIVATION";"__SERVER";"__NAMESPACE";"__PATH";"Caption";"CSName";"Description";"FixComments";"HotFixID";"InstallDate";"InstalledBy";"Name";"ServicePackInEffect";"Status"'
+    path: '{{ansible_path}}/KBInstalled-{{ansible_date_time.date}}-{{ansible_date_time.hour}}-{{ansible_date_time.minute}}.csv'
+  run_once: true
+
+- name: Update line in file Needed Update
+  local_action:
+    module: lineinfile
+    line: "{{content_file.stdout}}"
+    path: '{{ansible_path}}/KBInstalled-{{ansible_date_time.date}}-{{ansible_date_time.hour}}-{{ansible_date_time.minute}}.csv'
+
+- name: Remove file on local machine
+  win_file:
+    path: '{{windows_path}}\{{windows_file_name}}.csv'
+    state: absent
+
+- name: Get Service Update Status
+  win_service:
+    name: wuauserv
+  register: UpdateServiceStatus
+
+- win_service:
+    name: wuauserv
+    start_mode: auto
+  when: UpdateServiceStatus.start_mode == "disabled"
+
+- win_service:
+    name: wuauserv
+    state: started
+  when: UpdateServiceStatus.state == "stopped"
+
+- name: Get Needed Update
+  ansible.windows.win_powershell:
+    script: |
+      $server = $env:COMPUTERNAME  
+      $updatesession = [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session"))
+      $updatesearcher = $updatesession.CreateUpdateSearcher()
+      $searchresult = $updatesearcher.Search("IsInstalled=0")
+      $PatchCount = $searchresult.Updates.Count       
+      return $PatchCount
+  become_method: runas
+  register: neededUpdateCount
+
+- name: Get WSUS Stage
+  ansible.windows.win_reg_stat:
+    path: HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate
+    name: TargetGroup
+  register: WSUSStage
+
+- name: Get Uptime
+  ansible.windows.win_powershell:
+    script: ((get-date) – (gcim Win32_OperatingSystem).LastBootUpTime).Days
+  register: UptimeValue
+
+- name: Create file Needed Update
+  local_action:
+    module: lineinfile
+    create: yes
+    line: "ComputerName;NeededUpdate;WSUSServiceStatus;Stage;Uptime"
+    path: '{{ansible_path}}/Needed-{{ansible_date_time.date}}-{{ansible_date_time.hour}}h{{ansible_date_time.minute}}.csv'
+  run_once: true
+
+- name: Update line in file Needed Update
+  local_action:
+    module: lineinfile
+    line: "{{ inventory_hostname }};{{ neededUpdateCount.output | replace('[','') | replace(']','') }};{{ UpdateServiceStatus.start_mode }};{{ WSUSStage.value }};{{ UptimeValue.value }}"
+    path: '{{ansible_path}}/Needed-{{ansible_date_time.date}}-{{ansible_date_time.hour}}h{{ansible_date_time.minute}}.csv'
+
+- win_service:
+    name: wuauserv
+    state: stopped
+  when: UpdateServiceStatus.state == "stopped"
+
+- win_service:
+    name: wuauserv
+    start_mode: disabled
+  when: UpdateServiceStatus.start_mode == "disabled"
