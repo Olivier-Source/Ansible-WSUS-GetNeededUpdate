@@ -65,7 +65,7 @@
   become_method: runas
   register: neededUpdateCount
 
-- name: Get WSUS Stage
+- name: Get WSUS Target Group
   ansible.windows.win_reg_stat:
     path: HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate
     name: TargetGroup
